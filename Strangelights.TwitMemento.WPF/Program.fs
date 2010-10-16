@@ -17,6 +17,7 @@ open Strangelights.TwitMemento
 // TODO more comments?
 // TODO convert to grid with splitterss??
 // TODO fix closing problem.
+// TOOD auto scroll conversation containers.
 // TODO general tidy up and remove all the bits that make me want to cry
 
 // may need this if ever anything goes very wrong with authentication

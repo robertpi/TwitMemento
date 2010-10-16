@@ -2,7 +2,7 @@ Twit Memento
 
 Ever think twitter was backwards? The first thing you see is the latest thing the person said, so everything you read is in reverse order. It's like living a backwards world a bit like the one Christopher Nolan's Memento film form 2000.
 
-Twit Memento aims to fix this by change the order you see tweets in, instead of new ones being inserted at the top, they're inserted at the bottom, like a normal chat client of message board. Not only that Twit Memento also automatically detects groups of people talking to each other and displays them together.
+Twit Memento aims to fix this by change the order you see tweets in, instead of new ones being inserted at the top, they're inserted at the bottom, like a normal chat client or message board. Not only that Twit Memento also automatically detects groups of people talking to each other and displays them together.
 
 It's based on twitters new HTTP streaming API's so tweets come in as they happen, no need to refresh and uses OAuth so your password is never seen by the app.
 

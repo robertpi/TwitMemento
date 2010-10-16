@@ -260,7 +260,9 @@ type TwitterStreamFollower(userName:string, statUpdateCount: int, oauth_token, o
 
     member this.SupersetNewParsedTweet = tweetEvent.Publish |> Event.choose parseTweet
 
-    member this.NewParsedTweet = this.SupersetNewParsedTweet |> Event.filter (fun x -> Set.contains x.Id friendSet)
+    member this.NewParsedTweet = 
+        this.SupersetNewParsedTweet 
+        |> Event.filter (fun x -> Set.contains x.Id friendSet || List.exists (fun ment -> ment =. userName) x.Mentions )
 
     member this.TweetsByUserUpdate = 
         this.SupersetNewParsedTweet

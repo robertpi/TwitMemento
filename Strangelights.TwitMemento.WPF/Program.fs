@@ -49,8 +49,8 @@ let createOAuthWindow() =
     let oauth_token, oauth_token_secret, usernameText = StoredOAuth.getOAuth (fun _ -> window.ShowDialog() |> ignore; password.Text, username.Text)
     oauth_token, oauth_token_secret, usernameText
 
-let allTweetsOC = new ObservableCollection<UserStatus>()
-let conversationsDict = new Dictionary<Set<string>, ObservableCollection<UserStatus>*ScrollViewer>()
+let allTweetsOC = new ObservableCollection<Tweet>()
+let conversationsDict = new Dictionary<Set<string>, ObservableCollection<Tweet>*ScrollViewer>()
 
 
 type ImageConvert()=
@@ -74,7 +74,7 @@ let createScrollingViewer tweets =
         dpFactory.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal)
         let imageFactory = new FrameworkElementFactory(typeof<Image>)
         let converter = new ImageConvert() :> IValueConverter
-        imageFactory.SetBinding(Image.SourceProperty, new Binding("ProfileImage", Mode = BindingMode.OneWay, Converter = converter))
+        imageFactory.SetBinding(Image.SourceProperty, new Binding("User.ProfileImage", Mode = BindingMode.OneWay, Converter = converter))
         imageFactory.SetValue(TextBox.WidthProperty, 48.)
         imageFactory.SetValue(TextBox.HeightProperty, 48.)
         dpFactory.AppendChild(imageFactory)
@@ -82,7 +82,7 @@ let createScrollingViewer tweets =
         let spvFactory = new FrameworkElementFactory(typeof<StackPanel>, Name = "tweetTextContainer")
         dpFactory.AppendChild(spvFactory)
 
-        let username = readOnlyTextBoxFactory spvFactory "UserName"
+        let username = readOnlyTextBoxFactory spvFactory "User.UserName"
         username.SetValue(TextBox.FontWeightProperty, FontWeights.Bold)
         let status = readOnlyTextBoxFactory spvFactory "Status"
         status.SetValue(TextBox.TextWrappingProperty, TextWrapping.Wrap)
@@ -104,7 +104,7 @@ let treatConversations cons =
     // handle creating conversation windows and merging tweets into the OCs
     for (partipants, tweets) in cons do
         if not (conversationsDict.ContainsKey partipants) then
-            let converOC = new ObservableCollection<UserStatus>()
+            let converOC = new ObservableCollection<Tweet>()
             let scrollViewer = createScrollingViewer converOC
             conversationsDict.Add(partipants, (converOC, scrollViewer))
             conversationsDockPanel.Children.Add(scrollViewer) |> ignore
@@ -170,21 +170,3 @@ window.Loaded.Add(fun _ ->
 
 [<System.STAThread>]
 app.Run(window) |> ignore
-
-
-//rather unsucessful experiment with grid splitters ... seems complicated
-//let mainContainer = new Grid()
-//let gridSplitter = new GridSplitter(Width=10.,Background = Brushes.LightSlateGray)
-//mainContainer.ColumnDefinitions.Add(new ColumnDefinition())
-//mainContainer.ColumnDefinitions.Add(new ColumnDefinition())
-//mainContainer.ColumnDefinitions.Add(new ColumnDefinition())
-//Grid.SetColumn(allTweets, 0)
-//Grid.SetRow(allTweets, 0)
-//Grid.SetColumn(gridSplitter, 1)
-//Grid.SetRow(gridSplitter, 0)
-//Grid.SetColumn(conversationsScrollViewer, 2)
-//Grid.SetRow(conversationsScrollViewer, 0)
-//mainContainer.Children.Add(allTweets) |> ignore
-//mainContainer.Children.Add(gridSplitter) |> ignore
-//mainContainer.Children.Add(conversationsScrollViewer) |> ignore
-//outerMainContainer.Children.Add(mainContainer) |> ignore

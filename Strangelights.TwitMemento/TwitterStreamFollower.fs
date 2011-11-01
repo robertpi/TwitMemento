@@ -10,8 +10,11 @@ open System.Threading
 open Microsoft.FSharp.Control.WebExtensions
 open System.Xml.Linq
 open System.Text.RegularExpressions
+open System.Runtime.Serialization
+open System.Runtime.Serialization.Json
 
 
+[<AutoOpen>]
 module Misc =
     let debug = true
 
@@ -31,17 +34,6 @@ module Misc =
 
     let xn (s:string) = XName.op_Implicit s
 
-// naughty!
-open Misc
-
-/// The results of the parsed tweet
-type UserStatus =
-    { Id: string
-      UserName : string
-      ProfileImage : string
-      Status : string
-      Mentions : list<string>
-      StatusDate : DateTime }
 
 
 module StoredOAuth =
@@ -76,7 +68,7 @@ module OtherTwitterStuff =
             | Some oauth_token, Some oauth_token_secret, Some _, Some _ ->
                 oauth_token, oauth_token_secret
             | _ -> failwith "asset false"
-        let statusUrl = "http://twitter.com/statuses/update.xml"
+        let statusUrl = "https://twitter.com/statuses/update"
         let request = WebRequest.Create (statusUrl, Method="POST")
         let tweet =  OAuth.urlEncode(status)
         request.AddOAuthHeader(oauth_token,oauth_token_secret,["status",tweet])
@@ -89,6 +81,80 @@ module OtherTwitterStuff =
         let text = (new StreamReader(strm)).ReadToEnd()
         text
 
+    /// The results of the parsed tweet
+//    type UserStatus1 =
+//        { Id: string
+//          UserName : string
+//          ProfileImage : string
+//          Status : string
+//          Mentions : list<string>
+//          StatusDate : DateTime }
+
+[<DataContract>]
+type Mention =
+    { [<field: DataMember(Name="id_str") >]
+      mutable Id: string 
+      [<field: DataMember(Name="screen_name") >]
+      mutable UserName: string }
+
+[<DataContract>]
+type Entities =
+    { [<field: DataMember(Name="user_mentions") >]
+      mutable Mentions: Mention[] }
+
+/// The results of the parsed tweet
+[<DataContract>]
+type UserStatus = 
+    { [<field: DataMember(Name="id_str") >]
+      mutable Id : string;
+      [<field: DataMember(Name="screen_name") >]
+      mutable UserName : string;
+      [<field: DataMember(Name="profile_image_url") >]
+      mutable ProfileImage : string;
+      [<field: DataMember(Name="friends_count") >]
+      mutable FriendsCount : int;
+      [<field: DataMember(Name="followers_count") >]
+      mutable FollowersCount : int;
+      [<field: DataMember(Name="created_at") >]
+      mutable JoinDate : string
+    }
+
+[<DataContract>]
+type Tweet = 
+    { [<field: DataMember(Name="id") >]
+      mutable Id : string;
+      [<field: DataMember(Name="user") >]
+      mutable User : UserStatus 
+      [<field: DataMember(Name="created_at") >]
+      mutable StatusDate : string
+      [<field: DataMember(Name="entities") >]
+      mutable Entities: Entities
+      [<field: DataMember(Name="text") >]
+      mutable Status: string;  }
+
+module JsonParsering =
+    open System
+    open System.Xml.Linq
+    open System.Web
+    open System.Globalization
+
+
+    /// Object from Json 
+    let unjson<'T> (jsonString:string)  : 'T =  
+            use ms = new MemoryStream(System.Text.ASCIIEncoding.Default.GetBytes(jsonString)) 
+            let obj = (new DataContractJsonSerializer(typeof<'T>)).ReadObject(ms) 
+            obj :?> 'T
+
+
+    /// Attempt to parse a tweet
+    let parseTweet (tweet: string) = 
+        try 
+           let t = unjson<Tweet> tweet 
+           match box t.User with 
+           | null -> None
+           | _ -> Some t
+        with _ -> 
+           None
 
 /// A component which listens to tweets in the background and raises an
 /// event each time a tweet is observed
@@ -98,38 +164,22 @@ type TwitterStreamFollower(userName:string, statUpdateCount: int, oauth_token, o
         let wc = new WebClient()
         // add oauth header
         // TODO limit to 500 user ids or whatever the api limits us to ...
-        let userDetailsDoc = XDocument.Parse (wc.DownloadString(sprintf "http://twitter.com/users/show/%s.xml" userName))
+        let userDetailsDoc = XDocument.Parse (wc.DownloadString(sprintf "https://twitter.com/users/show/%s.xml" userName))
+        if debug then printfn "%O" userDetailsDoc
         let userId = userDetailsDoc.Root.Element(xn "id")
-        let friendsIdsDoc = XDocument.Parse (wc.DownloadString(sprintf "http://twitter.com/friends/ids.xml?user_id=%s" userId.Value))
-        seq { yield  userId.Value; yield! friendsIdsDoc.Root.Elements(xn "id") |> Seq.map (fun x -> x.Value) }
+        let friendsIdsDoc = XDocument.Parse (wc.DownloadString(sprintf "https://api.twitter.com/1/friends/ids.xml?id=%s" userId.Value))
+        if debug then printfn "%O" friendsIdsDoc
+        seq { yield  userId.Value; yield! friendsIdsDoc.Root.Descendants(xn "id") |> Seq.map (fun x -> x.Value) }
         |> Set.ofSeq
 
     let friendSet = getMyFriendsList()
  
  
     let tweetEvent = new Event<_>()  
-    let streamSampleUrl = "http://stream.twitter.com/1/statuses/sample.xml?delimited=length"
-    let streamFilterUrl = "http://stream.twitter.com/1/statuses/filter.xml"
+    let streamFilterUrl = "https://stream.twitter.com/1/statuses/filter.json"
  
     /// The cancellation condition
     let mutable group = new CancellationTokenSource()
-
-    /// Attempt to parse a tweet
-    let parseTweet (xml: string) =  
-        let document = XDocument.Parse xml
-        let node = document.Root
-        if node.Element(xn "user") <> null then
-            let status = node.Element(xn "text").Value |> HttpUtility.HtmlDecode
-            Some { Id           = node.Element(xn "user").Element(xn "id").Value
-                   UserName     = node.Element(xn "user").Element(xn "screen_name").Value;
-                   ProfileImage = node.Element(xn "user").Element(xn "profile_image_url").Value;
-                   Status       = status;
-                   Mentions     = [ for userNameCapture in twitterUserName.Matches(status) do yield userNameCapture.Value.[ 1 .. ] ]
-                   StatusDate   = node.Element(xn "created_at").Value |> (fun msg ->
-                                        DateTime.ParseExact(msg, "ddd MMM dd HH:mm:ss +0000 yyyy",
-                                                            CultureInfo.InvariantCulture)); }
-        else
-            None
 
 
     let calculateSummerizeMentions mentions =
@@ -144,12 +194,12 @@ type TwitterStreamFollower(userName:string, statUpdateCount: int, oauth_token, o
 
     let calculateConversations usersMap = // TODO use case insenative compares when comparing usernames
         let getSetOfResponses tweet =
-            let mentionsExculdingMe = tweet.Mentions |> List.filter (fun x -> x <>. tweet.UserName)
-            let possRespones =  mentionsExculdingMe |> List.choose(fun x -> Map.tryFind x usersMap) |> List.collect id
-            let actualRespones = possRespones  |> List.filter (fun response -> List.exists (fun mention -> mention =. tweet.UserName) response.Mentions) 
+            let mentionsExculdingMe = tweet.Entities.Mentions |> Seq.filter (fun x -> x.UserName <>. tweet.User.UserName)
+            let possRespones =  mentionsExculdingMe |> Seq.choose(fun x -> Map.tryFind x.UserName usersMap) |> Seq.concat |> Seq.toList
+            let actualRespones = possRespones  |> List.filter (fun response -> Array.exists (fun (mention: Mention) -> mention.UserName =. tweet.User.UserName) response.Entities.Mentions) 
             // 
             //printfn "##mentions = %d, possible responses = %d, actual responses = %d" (List.length mentionsExculdingMe) (List.length possRespones) (List.length actualRespones)
-            match actualRespones with | [] -> None | x -> Some (x |> List.map(fun x -> x.UserName) |> Set.ofList )
+            match actualRespones with | [] -> None | x -> Some (x |> List.map(fun x -> x.User.UserName) |> Set.ofList )
         let getResponseToAnyTweet usersTweets =
             usersTweets 
             |> List.choose getSetOfResponses
@@ -184,10 +234,10 @@ type TwitterStreamFollower(userName:string, statUpdateCount: int, oauth_token, o
 
     let addToTweetsByUser key x tweetsByUser =
         let prev = match Map.tryFind key tweetsByUser with None -> [] | Some v -> v
-        Map.add x.UserName (x::prev) tweetsByUser
+        Map.add x.User.UserName (x::prev) tweetsByUser
 
     let addToMentionsCount key x mentionsCount =
-        x.Mentions |> Seq.fold (fun acc userName -> 
+        x.Entities.Mentions |> Seq.fold (fun acc userName -> 
             let count = match Map.tryFind userName mentionsCount with None -> 0 | Some v -> v
             Map.add userName (count+1) acc) mentionsCount  
 
@@ -243,6 +293,7 @@ type TwitterStreamFollower(userName:string, statUpdateCount: int, oauth_token, o
                                 let _numRead = reader.ReadBlock(buffer,0,size) 
                                 if debug then printfn "## [%A] finished reading blockl: %i" DateTime.Now _numRead
                                 let text = new System.String(buffer)
+                                if tweetEvent :> obj = null then failwith "tweet event null"
                                 syncContext.RaiseEvent tweetEvent text
                                 return! loop()
                         }
@@ -258,20 +309,23 @@ type TwitterStreamFollower(userName:string, statUpdateCount: int, oauth_token, o
     /// Raised when the XML for a tweet arrives
     member this.SupersetNewRawTweet = tweetEvent.Publish
 
-    member this.SupersetNewParsedTweet = tweetEvent.Publish |> Event.choose parseTweet
+    member this.SupersetNewParsedTweet = tweetEvent.Publish |> Event.choose JsonParsering.parseTweet
 
     member this.NewParsedTweet = 
         this.SupersetNewParsedTweet 
-        |> Event.filter (fun x -> Set.contains x.Id friendSet || List.exists (fun ment -> ment =. userName) x.Mentions )
+        |> Event.filter (fun x -> 
+                            let isGoodTweet = Set.contains x.User.Id friendSet || Array.exists (fun (ment: Mention)  -> ment.UserName =. userName) x.Entities.Mentions 
+                            printfn "%b %s" isGoodTweet x.User.Id
+                            isGoodTweet)
 
     member this.TweetsByUserUpdate = 
         this.SupersetNewParsedTweet
-        |> Event.scan (fun map tweet -> addToTweetsByUser tweet.UserName tweet map) Map.empty
+        |> Event.scan (fun map tweet -> addToTweetsByUser tweet.User.UserName tweet map) Map.empty
         |> every statUpdateCount
 
     member this.MentionsCountsUpdate = 
         this.SupersetNewParsedTweet
-        |> Event.scan (fun map tweet -> addToMentionsCount tweet.UserName tweet map) Map.empty
+        |> Event.scan (fun map tweet -> addToMentionsCount tweet.User.UserName tweet map) Map.empty
         |> every statUpdateCount
 
     member this.ConversationsUpdate =

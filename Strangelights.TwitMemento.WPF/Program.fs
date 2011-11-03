@@ -12,7 +12,7 @@ let main args =
         System.Net.ServicePointManager.Expect100Continue <- false
 
         // clear storage
-        Storage.reset()
+        //Storage.reset()
 
         // get the oauth token from the user
         let oauth_token, oauth_token_secret, username = View.createOAuthWindow()

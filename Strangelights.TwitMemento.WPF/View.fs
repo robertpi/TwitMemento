@@ -53,8 +53,9 @@ let createOAuthWindow() =
 type ImageConvert()=
     interface IValueConverter with
         member x.Convert(value, targetType, parameter, culture) =
-            new BitmapImage(new Uri((string)value), new RequestCachePolicy(RequestCacheLevel.CacheIfAvailable),
-                            CreateOptions = BitmapCreateOptions.IgnoreColorProfile) :> obj
+            new BitmapImage(CreateOptions = BitmapCreateOptions.IgnoreColorProfile,
+                            UriSource = new Uri((string)value), 
+                            UriCachePolicy = new RequestCachePolicy(RequestCacheLevel.CacheIfAvailable)) :> obj
         member x.ConvertBack(value, targetType, parameter, culture) =
             raise (new NotImplementedException())
 
@@ -129,7 +130,7 @@ let private createTweetBox() =
     let dockPanel = new DockPanel()
 
     textBox.KeyDown.Add(fun _ -> counter.Text  <-  sprintf "%i" (140 - textBox.Text.Length))
-    button.Click.Add(fun _ -> System.IO.File.WriteAllText(@"C:\code\TwitMemento\error.txt", OtherTwitterStuff.updateStatus textBox.Text); counter.Text <- "140"; textBox.Text <- "")
+    button.Click.Add(fun _ -> OtherTwitterStuff.updateStatus textBox.Text |> ignore; counter.Text <- "140"; textBox.Text <- "")
     counter.SetValue(DockPanel.DockProperty, Dock.Right)
     button.SetValue(DockPanel.DockProperty, Dock.Right)
     dockPanel.AddChildren([button; counter; textBox;])

@@ -309,8 +309,8 @@ type TwitterStreamFollower(userName:string, statUpdateCount: int, oauth_token, o
                                 if String.IsNullOrEmpty sizeLine then return! loop()
                                 let size = int sizeLine
                                 let buffer = Array.zeroCreate size
-                                let _numRead = reader.ReadBlock(buffer,0,size) 
-                                if debug then printfn "## [%A] finished reading blockl: %i" DateTime.Now _numRead
+                                let numRead = reader.ReadBlock(buffer,0,size) 
+                                if debug then printfn "## [%A] finished reading blockl: %i" DateTime.Now numRead
                                 let text = new System.String(buffer)
                                 if tweetEvent :> obj = null then failwith "tweet event null"
                                 syncContext.RaiseEvent tweetEvent text

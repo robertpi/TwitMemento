@@ -53,9 +53,8 @@ let createOAuthWindow() =
 type ImageConvert()=
     interface IValueConverter with
         member x.Convert(value, targetType, parameter, culture) =
-            new BitmapImage(CreateOptions = BitmapCreateOptions.IgnoreColorProfile,
-                            UriSource = new Uri((string)value), 
-                            UriCachePolicy = new RequestCachePolicy(RequestCacheLevel.CacheIfAvailable)) :> obj
+            new BitmapImage(new Uri((string)value), new RequestCachePolicy(RequestCacheLevel.CacheIfAvailable),
+                            CreateOptions = BitmapCreateOptions.IgnoreColorProfile) :> obj
         member x.ConvertBack(value, targetType, parameter, culture) =
             raise (new NotImplementedException())
 

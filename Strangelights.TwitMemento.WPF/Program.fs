@@ -11,6 +11,9 @@ let main args =
         // twitter needs this to be false, don't know why
         System.Net.ServicePointManager.Expect100Continue <- false
 
+        // clear storage
+        Storage.reset()
+
         // get the oauth token from the user
         let oauth_token, oauth_token_secret, username = View.createOAuthWindow()
         
@@ -18,8 +21,8 @@ let main args =
         let incoming = new TwitterStreamFollower(username, 5, oauth_token, oauth_token_secret)
         // add the stuff we need to do when a new tweet comes in
         incoming.NewParsedTweet.Add(fun x -> 
-            ViewModel.allTweetsOC.Add(x)
-            View.allTweets.ScrollToBottom())
+            ViewModel.AllTweetsOC.Add(x)
+            View.AllTweets.ScrollToBottom())
         // add the stuff we need to do when converstation list is updated
         incoming.ConversationsUpdate.Add ViewModel.treatConversations
         
@@ -28,6 +31,7 @@ let main args =
 
         // start listen to that twitter stream
         incoming.StartListening())
-
+    
+    // start event loop and show our window
     let app = new Application()
     app.Run(View.MainWindow)

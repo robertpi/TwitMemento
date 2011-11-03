@@ -4,16 +4,20 @@ open System.Collections.ObjectModel
 open System.Windows.Controls
 open Strangelights.TwitMemento
 
-let allTweetsOC = new ObservableCollection<Tweet>()
-let conversationsDict = new Dictionary<Set<string>, ObservableCollection<Tweet>>()
-let conversationsList = new ObservableCollection<ObservableCollection<Tweet>>()
+// dictionary that keeps track of which conversations are grouped together
+let private conversationsDict = new Dictionary<Set<string>, ObservableCollection<Tweet>>()
 
+// the properties of the view model that we'll bind to
+let AllTweetsOC = new ObservableCollection<Tweet>()
+let ConversationsOC = new ObservableCollection<ObservableCollection<Tweet>>()
+
+// take the conversations list and add it to the view modol
 let treatConversations cons =
     // handle creating conversation windows and merging tweets into the OCs
     for (partipants, tweets) in cons do
         if not (conversationsDict.ContainsKey partipants) then
             let converOC = new ObservableCollection<Tweet>()
-            conversationsList.Add converOC
+            ConversationsOC.Add converOC
             conversationsDict.Add(partipants, converOC)
         let converOC = conversationsDict.[partipants]
         // this list merge algo is ugly, feels like we could do better
@@ -33,6 +37,6 @@ let treatConversations cons =
         if not (List.exists (fun (x, _) -> x = partipants) cons) then
             let conv = conversationsDict.[partipants]
             deleteList.Add(partipants)
-            conversationsList.Remove(conv) |> ignore
+            ConversationsOC.Remove(conv) |> ignore
     for partipants in deleteList do
         conversationsDict.Remove(partipants) |> ignore

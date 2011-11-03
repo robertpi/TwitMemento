@@ -62,33 +62,35 @@ module StoredOAuth =
 
 module OtherTwitterStuff =
     let updateStatus status =
-        // TODO assume we've been authenticated at this point, kinda shoddy
         let oauth_token, oauth_token_secret =
             match Storage.readKeys() with
             | Some oauth_token, Some oauth_token_secret, Some _, Some _ ->
                 oauth_token, oauth_token_secret
             | _ -> failwith "asset false"
-        let statusUrl = "https://twitter.com/statuses/update"
+        let statusUrl = "https://api.twitter.com/1/statuses/update"
         let request = WebRequest.Create (statusUrl, Method="POST")
         let tweet =  OAuth.urlEncode(status)
         request.AddOAuthHeader(oauth_token,oauth_token_secret,["status",tweet])
-        use bodyStream = request.GetRequestStream()
-        use bodyWriter = new StreamWriter(bodyStream)
-        bodyWriter.Write("status=" + tweet)
-        bodyWriter.Close()
-        use resp = request.GetResponse()
+        let doWriteBody() =
+            use reqStream = request.GetRequestStream() 
+            use streamWriter = new StreamWriter(reqStream)
+            streamWriter.Write(sprintf "status=%s" tweet)
+        doWriteBody()
+        use resp = 
+            try
+                request.GetResponse()
+            with
+            | :? WebException as ex -> 
+                use resp = ex.Response
+                use strm = resp.GetResponseStream()
+                let text = (new StreamReader(strm)).ReadToEnd()
+                if debug then printfn "%s" text
+                reraise()
+            | _ -> 
+                reraise()
         use strm = resp.GetResponseStream()
         let text = (new StreamReader(strm)).ReadToEnd()
         text
-
-    /// The results of the parsed tweet
-//    type UserStatus1 =
-//        { Id: string
-//          UserName : string
-//          ProfileImage : string
-//          Status : string
-//          Mentions : list<string>
-//          StatusDate : DateTime }
 
 [<DataContract>]
 type Mention =
@@ -160,67 +162,81 @@ module JsonParsering =
 /// event each time a tweet is observed
 type TwitterStreamFollower(userName:string, statUpdateCount: int, oauth_token, oauth_token_secret) =
 
-    let getMyFriendsList() =
+    // gets a set of friends associated with the current userName
+    let getMyFriendsSet() =
+        // this uses methods that don't require authentication
         let wc = new WebClient()
-        // add oauth header
-        // TODO limit to 500 user ids or whatever the api limits us to ...
+        // get xml doc with user details to extract the user id
         let userDetailsDoc = XDocument.Parse (wc.DownloadString(sprintf "https://twitter.com/users/show/%s.xml" userName))
-        if debug then printfn "%O" userDetailsDoc
         let userId = userDetailsDoc.Root.Element(xn "id")
+        // get a doc listing all the users friends
         let friendsIdsDoc = XDocument.Parse (wc.DownloadString(sprintf "https://api.twitter.com/1/friends/ids.xml?id=%s" userId.Value))
-        if debug then printfn "%O" friendsIdsDoc
+        // create a set of the current users id and all there friends id
         seq { yield  userId.Value; yield! friendsIdsDoc.Root.Descendants(xn "id") |> Seq.map (fun x -> x.Value) }
         |> Set.ofSeq
 
-    let friendSet = getMyFriendsList()
+    // get the set of friend ids
+    let friendSet = getMyFriendsSet()
  
- 
-    let tweetEvent = new Event<_>()  
+    // the event that will be raised each time a tweat is received
+    let tweetEvent = new Event<_>()
+    
+    // the url of the streaming api
     let streamFilterUrl = "https://stream.twitter.com/1/statuses/filter.json"
  
-    /// The cancellation condition
+    // The cancellation condition
     let mutable group = new CancellationTokenSource()
 
-
-    let calculateSummerizeMentions mentions =
-        let topMentions = mentions |> Map.toSeq |> Seq.fold (fun ((_, max) as acc) (user, count) -> if count > max then  user, count else acc) ("", 0)
-        let moreThanOnMention = mentions |> Map.toSeq |> Seq.filter (fun (_, count) -> count > 1) |> Seq.length
-        topMentions, moreThanOnMention
-
+    // case insentative string equality
     let (=.) s1 s2 =
         String.Compare(s1, s2, StringComparison.InvariantCultureIgnoreCase) = 0
 
+    // case insentative string inequality
     let (<>.) s1 s2 = not  (s1 =. s2) 
 
+    // function that takes a map of users and thier tweets and returns a list set of "conversatations"
+    // conversation is a set of users with a list of all their tweets
     let calculateConversations usersMap = // TODO use case insenative compares when comparing usernames
         let getSetOfResponses tweet =
+            // get the people I mentioned in the tweet, but exculding me
             let mentionsExculdingMe = tweet.Entities.Mentions |> Seq.filter (fun x -> x.UserName <>. tweet.User.UserName)
+            // get all the tweets that the people I have mentioned have made
             let possRespones =  mentionsExculdingMe |> Seq.choose(fun x -> Map.tryFind x.UserName usersMap) |> Seq.concat |> Seq.toList
+            // find any tweets they made that mentioned me
             let actualRespones = possRespones  |> List.filter (fun response -> Array.exists (fun (mention: Mention) -> mention.UserName =. tweet.User.UserName) response.Entities.Mentions) 
-            // 
-            //printfn "##mentions = %d, possible responses = %d, actual responses = %d" (List.length mentionsExculdingMe) (List.length possRespones) (List.length actualRespones)
-            match actualRespones with | [] -> None | x -> Some (x |> List.map(fun x -> x.User.UserName) |> Set.ofList )
+            // if the response are none empty return the set of users
+            match actualRespones with | [] -> None | x -> Some (x |> List.map(fun x -> x.User.UserName) |> Set.ofList)
+
+        // get all the responses from the users list of conversations
         let getResponseToAnyTweet usersTweets =
             usersTweets 
             |> List.choose getSetOfResponses
             |> List.fold Set.union Set.empty
+        // get all nonempty responses from all users 
         let nonEmpyResponse = 
-            usersMap |> Map.toList |> List.map (fun (userName, tweets) -> userName, getResponseToAnyTweet tweets)
+            usersMap 
+            |> Map.toList 
+            |> List.map (fun (userName, tweets) -> userName, getResponseToAnyTweet tweets)
             |> List.filter (fun (_, responders) -> not (Set.isEmpty responders))
-        let acculateConversations acc (userName, responders) =
+        // find the groups of people talking to each other
+        let accumulateConversations acc (userName, responders) =
+            // add the user name to the set of people that have responded to them
             let workingSet = Set.add userName responders
+            // try and find any other set of people already in the accumilator that the user is talking to
             match acc |> List.tryFind (fun x -> not (Set.isEmpty  (Set.intersect x workingSet))) with
+            // found no other overlaping conversations groups, create a new entry in the set
             | None -> workingSet :: acc
+            // found set with some interactions
             | Some foundSet ->
+                // take the set found out of the accumulator
                 let accMinusFoundSet = acc |> List.filter (fun x -> foundSet <> x) 
+                // add the set back into the accumulator updated with the new members
                 let newAcc =  (Set.union foundSet workingSet) :: accMinusFoundSet
-                printfn "### accMinusFoundSet = %A newAcc =%A" accMinusFoundSet newAcc
+                if debug then printfn "### accMinusFoundSet = %A newAcc =%A" accMinusFoundSet newAcc
                 newAcc
-        // TODO reorganise this debug stuff
-        //let avg = usersMap |> Seq.averageBy (fun (KeyValue(_,d)) -> float d.Length)
-        //printfn "#users = %d, avg tweets = %g, one+ mentions = %d, non empty responses = %d, conversations = %i" usersMap.Count avg moreThanOnMention (Seq.length nonEmpyResponse) (List.length converastions)
+
+        // find all the tweets associated with the people in a conversation group
         let getAllTweetsInConversation particpants = 
-            //printfn "*** Particpants: %A"  particpants
             particpants,
             usersMap
             |> Map.filter (fun userName _ -> Set.contains userName particpants)
@@ -228,20 +244,23 @@ type TwitterStreamFollower(userName:string, statUpdateCount: int, oauth_token, o
             |> List.fold (fun acc (_,tweets) -> tweets @ acc) []
             |> List.sortBy (fun x -> x.StatusDate)
 
-        let converastions =  nonEmpyResponse |> Seq.fold acculateConversations []
-        printfn "# converastions = %i, converastions = %i" (List.length converastions) (List.length nonEmpyResponse)
+        // get the final data structure a map of sets of users with a list of all there tweets 
+        let converastions =  nonEmpyResponse |> Seq.fold accumulateConversations []
+        printfn "# converastions = %i, nonEmpyResponse = %i" (List.length converastions) (List.length nonEmpyResponse)
         converastions |> List.map getAllTweetsInConversation
 
+    // add a new tweet by a user to the map of all tweets
     let addToTweetsByUser key x tweetsByUser =
         let prev = match Map.tryFind key tweetsByUser with None -> [] | Some v -> v
         Map.add x.User.UserName (x::prev) tweetsByUser
 
+    // add a user to the mention counts map
     let addToMentionsCount key x mentionsCount =
         x.Entities.Mentions |> Seq.fold (fun acc userName -> 
             let count = match Map.tryFind userName mentionsCount with None -> 0 | Some v -> v
             Map.add userName (count+1) acc) mentionsCount  
 
-    /// An event which triggers on every 'n' triggers of the input event
+    // An event which triggers on every 'n' triggers of the input event
     let every n (ev:IEvent<_>) =
        let out = new Event<_>()
        let count = ref 0
@@ -250,14 +269,13 @@ type TwitterStreamFollower(userName:string, statUpdateCount: int, oauth_token, o
  
     /// Start listening to a stream of tweets
     member this.StartListening() =
-                                                                    /// The background process
-
         // Capture the synchronization context to allow us to raise events back on the GUI thread
         let syncContext = SynchronizationContext.CaptureCurrent()
  
         let listener =
                 
-            async { let req = WebRequest.Create(streamFilterUrl,  Method = "POST", ContentType = "application/x-www-form-urlencoded")
+            async { // create a web request to open a http stream following all our friends
+                    let req = WebRequest.Create(streamFilterUrl,  Method = "POST", ContentType = "application/x-www-form-urlencoded")
                     let myFriendsList = System.String.Join(",", friendSet |> Seq.toArray)
                     if debug then printfn "myFriendsList = %s" myFriendsList  
                     req.AddOAuthHeader(oauth_token, oauth_token_secret, ["delimited", "length"; "follow", myFriendsList])
@@ -266,7 +284,8 @@ type TwitterStreamFollower(userName:string, statUpdateCount: int, oauth_token, o
                         use streamWriter = new StreamWriter(reqStream)
                         streamWriter.Write(sprintf "delimited=length&follow=%s" myFriendsList)
                     doWriteBody()
-                        
+                    
+                    // use the request to open a response stream
                     use! resp = 
                         try
                             req.AsyncGetResponse()
@@ -274,17 +293,17 @@ type TwitterStreamFollower(userName:string, statUpdateCount: int, oauth_token, o
                         | :? WebException as ex ->
                             let x = ex.Response :?> HttpWebResponse
                             if x.StatusCode = HttpStatusCode.Unauthorized then
-                                // TODO need inform user login has failed and they need to try again
-                                printfn "Here?? %O" ex
+                                if debug then printfn "Connection to the stream failed: %O" ex
                             reraise()
                     use stream = resp.GetResponseStream()
+
+                    // wrap stream in stream reader
                     use reader = new StreamReader(stream)
-                    let atEnd = reader.EndOfStream
                     let rec loop() =
                         async {
                             let atEnd = reader.EndOfStream
                             if not atEnd then
-                                let x = _arg8
+                                // async loop to read tweets and raise an event when we receive one
                                 let sizeLine = reader.ReadLine()
                                 if debug then printfn "## [%A] read line: %s" DateTime.Now sizeLine
                                 if String.IsNullOrEmpty sizeLine then return! loop()
@@ -306,29 +325,33 @@ type TwitterStreamFollower(userName:string, statUpdateCount: int, oauth_token, o
         group.Cancel();
         group <- new CancellationTokenSource()
  
-    /// Raised when the XML for a tweet arrives
+    /// Raised when the json for a tweet arrives
     member this.SupersetNewRawTweet = tweetEvent.Publish
 
+    /// raised when we can sucessfully parse a received tweet 
     member this.SupersetNewParsedTweet = tweetEvent.Publish |> Event.choose JsonParsering.parseTweet
 
+    /// raised when we receive a tweet that we would normally see
     member this.NewParsedTweet = 
         this.SupersetNewParsedTweet 
         |> Event.filter (fun x -> 
                             let isGoodTweet = Set.contains x.User.Id friendSet || Array.exists (fun (ment: Mention)  -> ment.UserName =. userName) x.Entities.Mentions 
-                            printfn "%b %s" isGoodTweet x.User.Id
+                            if debug then printfn "%b %s" isGoodTweet x.User.Id
                             isGoodTweet)
 
+    /// raised with an update of the master map that holds the users and their tweets
     member this.TweetsByUserUpdate = 
         this.SupersetNewParsedTweet
         |> Event.scan (fun map tweet -> addToTweetsByUser tweet.User.UserName tweet map) Map.empty
         |> every statUpdateCount
 
+    /// raised when a new update of the counts
     member this.MentionsCountsUpdate = 
         this.SupersetNewParsedTweet
         |> Event.scan (fun map tweet -> addToMentionsCount tweet.User.UserName tweet map) Map.empty
         |> every statUpdateCount
 
+    /// raised an event with the conversation data 
     member this.ConversationsUpdate =
         this.TweetsByUserUpdate
         |> Event.map calculateConversations
-

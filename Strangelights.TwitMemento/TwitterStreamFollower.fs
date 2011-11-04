@@ -34,6 +34,13 @@ module Misc =
 
     let xn (s:string) = XName.op_Implicit s
 
+    // case insentative string equality
+    let (=.) s1 s2 =
+        String.Compare(s1, s2, StringComparison.InvariantCultureIgnoreCase) = 0
+
+    // case insentative string inequality
+    let (<>.) s1 s2 = not  (s1 =. s2) 
+
 
 
 module StoredOAuth =
@@ -92,48 +99,6 @@ module OtherTwitterStuff =
         let text = (new StreamReader(strm)).ReadToEnd()
         text
 
-[<DataContract>]
-type Mention =
-    { [<field: DataMember(Name="id_str") >]
-      mutable Id: string 
-      [<field: DataMember(Name="screen_name") >]
-      mutable UserName: string }
-
-[<DataContract>]
-type Entities =
-    { [<field: DataMember(Name="user_mentions") >]
-      mutable Mentions: Mention[] }
-
-/// The results of the parsed tweet
-[<DataContract>]
-type UserStatus = 
-    { [<field: DataMember(Name="id_str") >]
-      mutable Id : string;
-      [<field: DataMember(Name="screen_name") >]
-      mutable UserName : string;
-      [<field: DataMember(Name="profile_image_url") >]
-      mutable ProfileImage : string;
-      [<field: DataMember(Name="friends_count") >]
-      mutable FriendsCount : int;
-      [<field: DataMember(Name="followers_count") >]
-      mutable FollowersCount : int;
-      [<field: DataMember(Name="created_at") >]
-      mutable JoinDate : string
-    }
-
-[<DataContract>]
-type Tweet = 
-    { [<field: DataMember(Name="id") >]
-      mutable Id : string;
-      [<field: DataMember(Name="user") >]
-      mutable User : UserStatus 
-      [<field: DataMember(Name="created_at") >]
-      mutable StatusDate : string
-      [<field: DataMember(Name="entities") >]
-      mutable Entities: Entities
-      [<field: DataMember(Name="text") >]
-      mutable Status: string;  }
-
 module JsonParsering =
     open System
     open System.Xml.Linq
@@ -158,42 +123,7 @@ module JsonParsering =
         with _ -> 
            None
 
-/// A component which listens to tweets in the background and raises an
-/// event each time a tweet is observed
-type TwitterStreamFollower(userName:string, statUpdateCount: int, oauth_token, oauth_token_secret) =
-
-    // gets a set of friends associated with the current userName
-    let getMyFriendsSet() =
-        // this uses methods that don't require authentication
-        let wc = new WebClient()
-        // get xml doc with user details to extract the user id
-        let userDetailsDoc = XDocument.Parse (wc.DownloadString(sprintf "https://twitter.com/users/show/%s.xml" userName))
-        let userId = userDetailsDoc.Root.Element(xn "id")
-        // get a doc listing all the users friends
-        let friendsIdsDoc = XDocument.Parse (wc.DownloadString(sprintf "https://api.twitter.com/1/friends/ids.xml?id=%s" userId.Value))
-        // create a set of the current users id and all there friends id
-        seq { yield  userId.Value; yield! friendsIdsDoc.Root.Descendants(xn "id") |> Seq.map (fun x -> x.Value) }
-        |> Set.ofSeq
-
-    // get the set of friend ids
-    let friendSet = getMyFriendsSet()
- 
-    // the event that will be raised each time a tweat is received
-    let tweetEvent = new Event<_>()
-    
-    // the url of the streaming api
-    let streamFilterUrl = "https://stream.twitter.com/1/statuses/filter.json"
- 
-    // The cancellation condition
-    let mutable group = new CancellationTokenSource()
-
-    // case insentative string equality
-    let (=.) s1 s2 =
-        String.Compare(s1, s2, StringComparison.InvariantCultureIgnoreCase) = 0
-
-    // case insentative string inequality
-    let (<>.) s1 s2 = not  (s1 =. s2) 
-
+module ConversationFunctions =
     // function that takes a map of users and thier tweets and returns a list set of "conversatations"
     // conversation is a set of users with a list of all their tweets
     let calculateConversations usersMap = // TODO use case insenative compares when comparing usernames
@@ -259,6 +189,36 @@ type TwitterStreamFollower(userName:string, statUpdateCount: int, oauth_token, o
         x.Entities.Mentions |> Seq.fold (fun acc userName -> 
             let count = match Map.tryFind userName mentionsCount with None -> 0 | Some v -> v
             Map.add userName (count+1) acc) mentionsCount  
+
+/// A component which listens to tweets in the background and raises an
+/// event each time a tweet is observed
+type TwitterStreamFollower(userName:string, statUpdateCount: int, oauth_token, oauth_token_secret) =
+
+    // gets a set of friends associated with the current userName
+    let getMyFriendsSet() =
+        // this uses methods that don't require authentication
+        let wc = new WebClient()
+        // get xml doc with user details to extract the user id
+        let userDetailsDoc = XDocument.Parse (wc.DownloadString(sprintf "https://twitter.com/users/show/%s.xml" userName))
+        let userId = userDetailsDoc.Root.Element(xn "id")
+        // get a doc listing all the users friends
+        let friendsIdsDoc = XDocument.Parse (wc.DownloadString(sprintf "https://api.twitter.com/1/friends/ids.xml?id=%s" userId.Value))
+        // create a set of the current users id and all there friends id
+        seq { yield  userId.Value; yield! friendsIdsDoc.Root.Descendants(xn "id") |> Seq.map (fun x -> x.Value) }
+        |> Set.ofSeq
+
+    // get the set of friend ids
+    let friendSet = getMyFriendsSet()
+ 
+    // the event that will be raised each time a tweat is received
+    let tweetEvent = new Event<_>()
+    
+    // the url of the streaming api
+    let streamFilterUrl = "https://stream.twitter.com/1/statuses/filter.json"
+ 
+    // The cancellation condition
+    let mutable group = new CancellationTokenSource()
+
 
     // An event which triggers on every 'n' triggers of the input event
     let every n (ev:IEvent<_>) =
@@ -342,16 +302,16 @@ type TwitterStreamFollower(userName:string, statUpdateCount: int, oauth_token, o
     /// raised with an update of the master map that holds the users and their tweets
     member this.TweetsByUserUpdate = 
         this.SupersetNewParsedTweet
-        |> Event.scan (fun map tweet -> addToTweetsByUser tweet.User.UserName tweet map) Map.empty
+        |> Event.scan (fun map tweet -> ConversationFunctions.addToTweetsByUser tweet.User.UserName tweet map) Map.empty
         |> every statUpdateCount
 
     /// raised when a new update of the counts
     member this.MentionsCountsUpdate = 
         this.SupersetNewParsedTweet
-        |> Event.scan (fun map tweet -> addToMentionsCount tweet.User.UserName tweet map) Map.empty
+        |> Event.scan (fun map tweet -> ConversationFunctions.addToMentionsCount tweet.User.UserName tweet map) Map.empty
         |> every statUpdateCount
 
     /// raised an event with the conversation data 
     member this.ConversationsUpdate =
         this.TweetsByUserUpdate
-        |> Event.map calculateConversations
+        |> Event.map ConversationFunctions.calculateConversations

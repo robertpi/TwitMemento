@@ -53,8 +53,14 @@ let createOAuthWindow() =
 type ImageConvert()=
     interface IValueConverter with
         member x.Convert(value, targetType, parameter, culture) =
-            new BitmapImage(new Uri((string)value), new RequestCachePolicy(RequestCacheLevel.CacheIfAvailable),
-                            CreateOptions = BitmapCreateOptions.IgnoreColorProfile) :> obj
+            let bitmap = new BitmapImage()
+            bitmap.BeginInit()
+            bitmap.CreateOptions <- BitmapCreateOptions.IgnoreColorProfile
+            bitmap.UriCachePolicy <- new RequestCachePolicy(RequestCacheLevel.CacheIfAvailable)
+            bitmap.UriSource <- new Uri(string value)
+            bitmap.EndInit()
+            bitmap :> obj
+
         member x.ConvertBack(value, targetType, parameter, culture) =
             raise (new NotImplementedException())
 
@@ -112,7 +118,9 @@ module private ElementFactories =
         spFactory.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal)
         new ScrollViewer(Content = new ItemsControl(ItemsSource = allConversationsTweets, 
                                                     ItemTemplate = conversationTemplate,
-                                                    ItemsPanel = new ItemsPanelTemplate(spFactory)))
+                                                    ItemsPanel = new ItemsPanelTemplate(spFactory)),
+                         HorizontalScrollBarVisibility = ScrollBarVisibility.Visible,
+                         VerticalScrollBarVisibility = ScrollBarVisibility.Disabled)
 
 // the scroll view that will show our list of conversations bound to the view model conversation list
 let private conversationsScrollViewer = ElementFactories.createDoubleScrollingViewer ViewModel.ConversationsOC

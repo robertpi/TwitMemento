@@ -5,6 +5,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Strangelights.TwitMemento",
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Strangelights.TwitMemento.WPF", "Strangelights.TwitMemento.WPF\Strangelights.TwitMemento.WPF.fsproj", "{C7EF0D5A-01C5-4076-86C8-DA64B944E5C4}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Strangelights.TwitMemento.Console", "Strangelights.TwitMemento.Console\Strangelights.TwitMemento.Console.fsproj", "{BF209684-0668-43C3-A739-8BE7EE6C4367}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x86 = Debug|x86
@@ -19,6 +21,10 @@ Global
 		{C7EF0D5A-01C5-4076-86C8-DA64B944E5C4}.Debug|x86.Build.0 = Debug|x86
 		{C7EF0D5A-01C5-4076-86C8-DA64B944E5C4}.Release|x86.ActiveCfg = Release|x86
 		{C7EF0D5A-01C5-4076-86C8-DA64B944E5C4}.Release|x86.Build.0 = Release|x86
+		{BF209684-0668-43C3-A739-8BE7EE6C4367}.Debug|x86.ActiveCfg = Debug|x86
+		{BF209684-0668-43C3-A739-8BE7EE6C4367}.Debug|x86.Build.0 = Debug|x86
+		{BF209684-0668-43C3-A739-8BE7EE6C4367}.Release|x86.ActiveCfg = Release|x86
+		{BF209684-0668-43C3-A739-8BE7EE6C4367}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

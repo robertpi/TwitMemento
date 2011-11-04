@@ -8,7 +8,7 @@
     <ProjectGuid>{bf209684-0668-43c3-a739-8be7ee6c4367}</ProjectGuid>
     <OutputType>Exe</OutputType>
     <RootNamespace>Strangelights.TwitMemento</RootNamespace>
-    <AssemblyName>Strangelights.TwitMemento</AssemblyName>
+    <AssemblyName>Strangelights.TwitMemento.Console</AssemblyName>
     <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
     <TargetFrameworkProfile>Client</TargetFrameworkProfile>
     <Name>Strangelights.TwitMemento</Name>
@@ -43,6 +43,13 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Program.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Strangelights.TwitMemento\Strangelights.TwitMemento.fsproj">
+      <Name>Strangelights.TwitMemento</Name>
+      <Project>{7a43cc74-5f95-48a3-aff5-8c51009aa976}</Project>
+      <Private>True</Private>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\FSharp\1.0\Microsoft.FSharp.Targets" Condition="!Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
   <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft F#\v4.0\Microsoft.FSharp.Targets" Condition=" Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
